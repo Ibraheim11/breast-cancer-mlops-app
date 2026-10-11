@@ -1,0 +1,21 @@
+[project]
+name = "ml-production-project"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12.7"
+dependencies = [
+    "joblib>=1.6.0",
+    "numpy>=2.5.4",
+    "pandas>=3.0.6",
+    "scikit-learn>=1.9.1",
+]
+
+[dependency-groups]
+dev = [
+    "black>=26.10.1",
+    "ipykernel>=7.4.0",
+    "jupyter>=1.1.1",
+    "pre-commit>=4.6.2",
+    "ruff>=0.17.0",
+]
