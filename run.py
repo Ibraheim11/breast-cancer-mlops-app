@@ -3,7 +3,6 @@ import argparse
 from production_app.logging_config import configure_logging, get_logger
 from production_app.main import predict_workflow, train_workflow
 
-
 logger = get_logger(__name__)
 
 
@@ -73,10 +72,7 @@ def main() -> None:
                 sample_index=args.sample_index,
             )
 
-            print(
-                f"\nPrediction for sample {args.sample_index}: "
-                f"{prediction}"
-            )
+            print(f"\nPrediction for sample {args.sample_index}: " f"{prediction}")
 
     except (FileNotFoundError, ValueError) as exc:
         logger.error(

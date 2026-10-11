@@ -2,13 +2,7 @@ import logging
 
 from production_app.config import settings
 
-
-LOG_FORMAT = (
-    "%(asctime)s | "
-    "%(levelname)s | "
-    "%(name)s | "
-    "%(message)s"
-)
+LOG_FORMAT = "%(asctime)s | " "%(levelname)s | " "%(name)s | " "%(message)s"
 
 
 def configure_logging() -> None:

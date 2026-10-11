@@ -18,6 +18,7 @@ def load_dataset() -> tuple[pd.DataFrame, pd.Series]:
 
     return X, y
 
+
 def split_data(
     X: pd.DataFrame,
     y: pd.Series,

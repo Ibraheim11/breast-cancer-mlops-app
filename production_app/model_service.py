@@ -6,7 +6,6 @@ from sklearn.pipeline import Pipeline
 
 from production_app.logging_config import get_logger
 
-
 logger = get_logger(__name__)
 
 
@@ -58,9 +57,7 @@ def load_model(
             model_path,
         )
 
-        raise FileNotFoundError(
-            f"Saved model not found: {model_path}"
-        )
+        raise FileNotFoundError(f"Saved model not found: {model_path}")
 
     model = joblib.load(model_path)
 
@@ -90,13 +87,9 @@ def predict(
         ValueError: If prediction input is empty.
     """
     if input_data.empty:
-        logger.error(
-            "Prediction input is empty."
-        )
+        logger.error("Prediction input is empty.")
 
-        raise ValueError(
-            "Prediction input cannot be empty."
-        )
+        raise ValueError("Prediction input cannot be empty.")
 
     predictions = model.predict(input_data)
 

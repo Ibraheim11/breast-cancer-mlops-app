@@ -4,7 +4,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 load_dotenv(PROJECT_ROOT / ".env")
@@ -48,9 +47,7 @@ def load_settings() -> Settings:
     )
 
     if not 0 < test_size < 1:
-        raise ValueError(
-            "TEST_SIZE must be between 0 and 1."
-        )
+        raise ValueError("TEST_SIZE must be between 0 and 1.")
 
     return Settings(
         app_env=os.getenv(

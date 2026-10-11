@@ -7,7 +7,6 @@ from production_app.logging_config import get_logger
 from production_app.model_service import load_model, predict, save_model
 from production_app.training import train_model
 
-
 logger = get_logger(__name__)
 
 
@@ -110,9 +109,7 @@ def predict_workflow(
             sample_index,
         )
 
-        raise ValueError(
-            f"Sample index must be between 0 and {len(X) - 1}."
-        )
+        raise ValueError(f"Sample index must be between 0 and {len(X) - 1}.")
 
     model = load_model(
         settings.model_path,
