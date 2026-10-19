@@ -1,0 +1,34 @@
+# Git
+.git/
+.gitignore
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment variables
+.env
+.env.*
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Jupyter notebooks
+notebooks/
+.ipynb_checkpoints/
+
+# Development caches
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# IDE files
+.vscode/
+.idea/
+
+# Temporary files
+*.log
+.DS_Store
+Thumbs.db
