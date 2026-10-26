@@ -1,126 +1,177 @@
-# Breast Cancer Classification — Production ML & FastAPI
+# Breast Cancer Classification — Production ML Application
 
-**LLMOps | Assignment 01 + Assignment 02**  
-**Assignment 01:** From Notebook to Production Python  
-**Assignment 02:** From Saved Model to a Validated ML API
+**LLMOps | Assignments 01, 02 & 03**  
+**Stack:** Python 3.12 · scikit-learn · FastAPI · Pydantic · Streamlit · Docker · pytest · uv
 
-This repository demonstrates how a machine-learning experiment is turned into a reproducible Python application and then served through a **validated FastAPI backend**. Assignment 02 extends the **same project and saved scikit-learn pipeline** from Assignment 01; it does not replace the model or retrain it during API requests.
+> **Educational demonstration only.** This classifier is **not clinically validated**, does not provide a diagnosis, and must not be used to make medical decisions.
 
-The API runs locally or inside a **Docker container**. Docker is an additional learning exercise; cloud deployment, Docker deployment, an automated API test suite, and a user interface are **not required** by Assignment 02.
+## Overview
 
-> **Educational use only.** The breast-cancer classifier is a coursework demonstration, not a medical diagnostic service.
+This repository evolves the **same machine-learning project** across three assignments:
 
-## Contents
+| Assignment | Deliverable |
+| --- | --- |
+| **01 — From Notebook to Production Python** | Reproducible training, evaluation, a saved scikit-learn pipeline, modular code, and CLI train/predict commands. |
+| **02 — From Saved Model to a Validated ML API** | FastAPI `GET /health` and `POST /predict`, Pydantic validation, safe error responses, saved-model inference, and Docker support. |
+| **03 — From Model API to a Production-Ready App** | Training-only feature selection, comparison with the 30-feature baseline, a **25-feature model**, Streamlit HTTP client, Dockerized API, and automated pytest coverage. |
 
-1. [Project overview](#project-overview)
-2. [Dataset and model](#dataset-and-model)
-3. [Project structure](#project-structure)
-4. [Quick start: local API](#quick-start-local-api)
-5. [Assignment 01: training and CLI inference](#assignment-01-training-and-cli-inference)
-6. [Assignment 01: evaluation results](#assignment-01-evaluation-results)
-7. [Assignment 02: API design](#assignment-02-api-design)
-8. [Required request features](#required-request-features)
-9. [API requests and responses](#api-requests-and-responses)
-10. [Validation and error handling](#validation-and-error-handling)
-11. [Docker: build and run](#docker-build-and-run)
-12. [Code quality](#code-quality)
-13. [Reproducibility and security](#reproducibility-and-security)
-14. [Troubleshooting](#troubleshooting)
-15. [Final verification checklist](#final-verification-checklist)
+**Final selected model:** `StandardScaler` → `LogisticRegression`, using **25 of the 30 original input measurements**. Selection uses `SelectKBest(f_classif)`; the number of features was chosen with **5-fold stratified cross-validation on training data only**. The fitted pipeline is saved and reused for inference: **no training occurs inside FastAPI or Streamlit**.
 
----
-
-## Project overview
-
-### What Assignment 01 implemented
-
-- Explored the **Breast Cancer Wisconsin Diagnostic** dataset in `notebooks/01_exploration.ipynb`.
-- Split the data into training and test sets, preserving class proportions.
-- Built a `scikit-learn` **Pipeline**: `StandardScaler` → `LogisticRegression`.
-- Evaluated the classifier and saved the **fitted pipeline** with `joblib`.
-- Refactored the experiment into reusable Python modules with configuration, logging, type hints, and error handling.
-- Added a CLI that can **train** or **load a model and predict**.
-
-### What Assignment 02 adds
-
-- `production_app/schemas.py`: Pydantic request and response models for **one observation containing all 30 original features**.
-- `production_app/api.py`: FastAPI application with **`GET /health`** and **`POST /predict`**.
-- Validation of feature names, types, numeric constraints, and unexpected input fields.
-- Controlled API failures (including **422** for invalid requests and **503** when the saved model is unavailable).
-- Automatic interactive API documentation at **`/docs`**.
-- An optional **Dockerfile** and **`.dockerignore`** to run the same saved-model API in a Linux container.
-
-### Serving architecture
+## Architecture
 
 ```text
-HTTP/JSON client
-       |
-       v
-FastAPI  (/health, /predict)
-       |
-       v
-Pydantic validates the 30 input features
-       |
-       v
-DataFrame in the trained feature order
-       |
-       v
-Cached, previously fitted joblib pipeline
-       |
-       v
-Prediction: class ID + readable label (JSON)
+Breast Cancer Wisconsin dataset (569 observations, 30 input features)
+      |
+      +--> stratified train/test split (80/20; random seed 42)
+              |
+              +--> training data: SelectKBest + 5-fold CV chooses k=25
+                         |
+                         +--> selected-feature training: StandardScaler + LogisticRegression
+                                     |
+                                     +--> evaluate on held-out test set
+                                     +--> save fitted 25-feature pipeline and feature-name metadata
+
+User --> Streamlit (editable 25-feature form; localhost:8501)
+             |
+             | HTTP POST /predict (JSON)
+             v
+         FastAPI + Pydantic (localhost:8006 with Docker)
+             |
+             v
+         Cached, fitted 25-feature joblib pipeline
+             |
+             v
+         JSON {"predicted_class": 0/1, "class_label": "malignant"/"benign"}
+             |
+             v
+         Streamlit result
 ```
 
-**The API does not run `train_model()`, `fit()`, or `fit_transform()` on incoming requests.** The saved model is loaded on first use and cached in the process for subsequent requests. The model file must exist and be compatible with the installed scikit-learn version.
+The Streamlit UI **does not import/load the fitted model** and **never retrains**. It only reads the selected-feature *names* and example input values from JSON files, sends requests to the FastAPI service, and displays responses.
 
----
+## Dataset and labels
 
-## Dataset and model
+- Source: `sklearn.datasets.load_breast_cancer` (no external dataset download required).
+- **569** observations; **30** numeric measurements; **2** classes; no missing values.
+- Class **`0` = `malignant`**; class **`1` = `benign`**.
+- Reproducible stratified **80% training / 20% test** split, random seed **42**.
+- Preprocessing: `StandardScaler` fitted **only on training data**.
+- Classifier: `LogisticRegression`; unchanged classifier family from Assignments 01 and 02.
 
-The data comes from `sklearn.datasets.load_breast_cancer`; no external dataset download is necessary.
+## Feature-selection research and rationale
 
-| Property | Value |
-| --- | --- |
-| Samples | 569 |
-| Input features | 30 numeric measurements |
-| Target classes | 2 |
-| Missing values | 0 |
-| Class `0` | `malignant` |
-| Class `1` | `benign` |
-| Training/test split | 80% / 20%, stratified |
-| Random seed | 42 (default) |
-| Preprocessing | `StandardScaler` |
-| Estimator | `LogisticRegression(max_iter=1000)` |
-| Serialized artifact | `models/breast_cancer_pipeline.joblib` |
+The assignment requires researching **all three families** but implementing only one:
 
-The scaler is **fitted only on training data** as part of the scikit-learn Pipeline, reducing the risk of data leakage. The saved artifact includes both the fitted scaler and classifier, so inference applies the same transformations automatically.
+| Family | How it works | Example | Strength | Limitation |
+| --- | --- | --- | --- | --- |
+| **Filter** | Ranks/removes features using statistics calculated from training data, independently of repeatedly fitting the final predictor. | ANOVA F-test via `SelectKBest(f_classif)` | Simple and computationally efficient. | Evaluates features individually and may retain correlated/redundant measurements. |
+| **Wrapper** | Tests feature subsets by repeatedly training and evaluating a predictive estimator. | RFE, RFECV | Can account for the predictor's behavior. | Usually more computationally expensive and may overfit without careful validation. |
+| **Embedded** | Selects/shrinks features during the estimator's fitting procedure. | L1-regularized logistic regression, `SelectFromModel` | Ties selection to model training. | Depends on the estimator/regularization and can be sensitive to settings. |
 
----
+**Chosen method:** Filter → **ANOVA F-test / SelectKBest**, appropriate for these numeric features and binary labels. It is straightforward to reproduce and explain. ANOVA's univariate scores do not model interactions among measurements, which is a limitation.
+
+### Leakage prevention and experiment design
+
+1. Split the dataset into **training and held-out test** data **before** fitting a selector.
+2. For `k` selection, place `SelectKBest` **inside** the scikit-learn `Pipeline` passed to `GridSearchCV`. Every cross-validation fold refits the selector using **that fold's training portion only**.
+3. Compare candidate counts `k ∈ {8, 10, 12, 15, 20, 25}` using **5-fold stratified CV** and **weighted F1**.
+4. Choose `k=25` based on training CV, refit on the full training split, and evaluate the final reduced-feature model on the held-out test split.
+5. Record the final selected-feature names and **their exact order**. Train and save a final `StandardScaler` + `LogisticRegression` pipeline with *only* those 25 DataFrame columns. Inference must not guess, invent, zero-fill, or request the five removed features.
+
+An initial exploratory **10-feature** model was also tested; its lower score motivated a training-only CV search. That 10-feature hold-out result is documented below for transparency; the selected `k` is the winner of the **training cross-validation**, not chosen by maximizing held-out test metrics. Since an earlier exploratory result was inspected, the held-out results should be interpreted as educational evidence rather than a pristine, never-inspected benchmark.
+
+### Cross-validation results (training data only)
+
+| Candidate k | Mean weighted F1 | Standard deviation |
+| ---: | ---: | ---: |
+| 8 | 0.9516 | 0.0191 |
+| 10 | 0.9472 | 0.0162 |
+| 12 | 0.9516 | 0.0132 |
+| 15 | 0.9450 | 0.0155 |
+| 20 | 0.9757 | 0.0083 |
+| **25** | **0.9825** | **0.0131** |
+
+The original **30-feature baseline** obtained **0.9780** mean weighted F1 under the training-only CV evaluation. The 25-feature candidate obtained **0.9825**. These are descriptive results on this dataset, not a guarantee of generalization.
+
+### Held-out test results (114 observations)
+
+| Metric | Original baseline: 30 features | Final selected: 25 features |
+| --- | ---: | ---: |
+| Accuracy | 0.9825 (98.25%) | 0.9737 (97.37%) |
+| Weighted precision | 0.9825 | 0.9740 |
+| Weighted recall | 0.9825 | 0.9737 |
+| Weighted F1 | 0.9825 | 0.9737 |
+| Input measurements | 30 | **25** |
+
+**Reduced-feature result:** 5 fewer measurements (**16.7% reduction**) with a **0.88-percentage-point drop** in held-out accuracy relative to the original baseline. This is a trade-off, **not an improvement in held-out accuracy**.
+
+Confusion matrices, with rows = true `[malignant, benign]`, columns = predicted `[malignant, benign]`:
+
+```text
+Baseline (30):        Final (25):
+[[41  1]              [[41  1]
+ [ 1 71]]              [ 2 70]]
+```
+
+The initial **10-feature exploratory model** scored accuracy **0.9474**, weighted precision **0.9485**, weighted recall **0.9474**, and weighted F1 **0.9476** on the held-out samples.
+
+### Final selected input fields — **25**, in order
+
+The external FastAPI JSON keys contain **spaces**, matching the dataset column names and Pydantic aliases:
+
+| # | Feature | # | Feature |
+| ---: | --- | ---: | --- |
+| 1 | `mean radius` | 14 | `concavity error` |
+| 2 | `mean texture` | 15 | `concave points error` |
+| 3 | `mean perimeter` | 16 | `worst radius` |
+| 4 | `mean area` | 17 | `worst texture` |
+| 5 | `mean smoothness` | 18 | `worst perimeter` |
+| 6 | `mean compactness` | 19 | `worst area` |
+| 7 | `mean concavity` | 20 | `worst smoothness` |
+| 8 | `mean concave points` | 21 | `worst compactness` |
+| 9 | `mean symmetry` | 22 | `worst concavity` |
+| 10 | `radius error` | 23 | `worst concave points` |
+| 11 | `perimeter error` | 24 | `worst symmetry` |
+| 12 | `area error` | 25 | `worst fractal dimension` |
+| 13 | `compactness error` | | |
+
+**Removed fields (not accepted by the final API):** `mean fractal dimension`, `texture error`, `smoothness error`, `symmetry error`, `fractal dimension error`.
+
+The authoritative runtime sources are `models/final_selected_features.json` and `feature_names_in_` on the saved model. The exact schema in `production_app/schemas.py` must match **both names and order**.
 
 ## Project structure
 
 ```text
 ml-production-project/
-├── notebooks/
-│   └── 01_exploration.ipynb       # Assignment 01 experimentation
+├── notebooks/01_exploration.ipynb             # Assignment 01
 ├── production_app/
 │   ├── __init__.py
-│   ├── config.py                 # Runtime settings and model path
-│   ├── logging_config.py        # Operational logging
-│   ├── data.py                  # Dataset loading and splitting
-│   ├── preprocessing.py         # StandardScaler
-│   ├── training.py              # Pipeline creation and fitting
-│   ├── evaluation.py            # Classification metrics
-│   ├── model_service.py         # Save / load / predict
-│   ├── main.py                  # Training and CLI prediction flows
-│   ├── schemas.py               # Assignment 02: Pydantic schemas
-│   └── api.py                   # Assignment 02: FastAPI endpoints
+│   ├── config.py                               # Env configuration
+│   ├── logging_config.py
+│   ├── data.py                                 # Dataset and split
+│   ├── preprocessing.py
+│   ├── feature_selection.py                    # SelectKBest utility (Task 03)
+│   ├── training.py                             # Fitted scaler/classifier pipeline
+│   ├── evaluation.py                           # Metrics
+│   ├── model_service.py                        # Save/load/predict
+│   ├── main.py                                 # Selected-feature CLI workflows
+│   ├── schemas.py                              # Exact 25-field Pydantic request
+│   └── api.py                                  # GET /health, POST /predict
 ├── models/
-│   └── breast_cancer_pipeline.joblib  # Existing fitted model
-├── run.py                       # Assignment 01 CLI entry point
-├── Dockerfile                   # Optional Docker packaging
+│   ├── breast_cancer_pipeline.joblib           # Original 30-feature baseline
+│   ├── breast_cancer_final_pipeline.joblib     # Final 25-feature fitted model
+│   └── final_selected_features.json            # Selected input names/order
+├── examples/sample_25_features.json           # Sample 0, real data values
+├── tests/
+│   ├── test_model.py
+│   └── test_api.py
+├── feature_selection_experiment.py             # Exploratory 10-feature comparison
+├── feature_selection_cv.py                     # CV search and comparison
+├── streamlit_app.py                            # HTTP client (no ML training/loading)
+├── run.py                                      # Train/predict CLI
+├── Dockerfile                                  # FastAPI only
 ├── .dockerignore
-├── .env.example                 # Safe example configuration
+├── .env.example
 ├── .gitignore
 ├── .pre-commit-config.yaml
 ├── .python-version
@@ -129,224 +180,94 @@ ml-production-project/
 └── README.md
 ```
 
-The notebook is kept as an experiment record; the reusable application logic lives in `production_app/`. The CLI entry point `run.py` remains available after adding the API.
+Some intermediate model artifacts produced by experiments (`breast_cancer_selected_pipeline.joblib`, `breast_cancer_cv_selected_pipeline.joblib` and the corresponding JSON files) are **not required** to run the final application and may be kept locally. The repository should contain the final artifact or a reliable documented path to reproduce it.
 
----
+## Install and configure (Windows PowerShell)
 
-## Quick start: local API
-
-### Prerequisites
-
-- **Git**
-- **uv** (Python package and environment manager)
-- Python **3.12.7** (pinned in `.python-version`; `uv` can manage this version)
-
-### 1. Clone the existing repository
-
-```bash
-git clone https://github.com/Ibraheim11/llmops-assignment-01-production-python.git
-cd llmops-assignment-01-production-python
-```
-
-This is the **same repository** used for Assignment 01.
-
-### 2. Install the dependencies
-
-```bash
-uv sync
-```
-
-`uv` reads `pyproject.toml` and `uv.lock` and creates or updates `.venv`. For a strict lockfile check, use `uv sync --locked`.
-
-### 3. Configure the environment (optional for the documented defaults)
-
-Windows PowerShell:
+Requirements: **Git**, **uv**, compatible **Python 3.12**; **Docker Desktop** for container testing. The project uses a Python version recorded in `.python-version`.
 
 ```powershell
+git clone https://github.com/Ibraheim11/llmops-assignment-01-production-python.git
+cd llmops-assignment-01-production-python
+uv sync --locked
 Copy-Item .env.example .env
 ```
 
-macOS/Linux:
-
-```bash
-cp .env.example .env
-```
-
-Expected example settings:
+Check `.env` and ensure these settings target the **final** model (example):
 
 ```dotenv
 APP_ENV=development
 LOG_LEVEL=INFO
-MODEL_PATH=models/breast_cancer_pipeline.joblib
+MODEL_PATH=models/breast_cancer_final_pipeline.joblib
 TEST_SIZE=0.20
 RANDOM_SEED=42
 ```
 
-The actual `.env` is local and **must not be committed**. The default `MODEL_PATH` points to the saved model inside this repository.
+`.env` is local configuration and must **not** be committed. The `MODEL_PATH` default and the `.env.example` file should likewise target the 25-feature artifact. A conflicting operating-system `MODEL_PATH` takes precedence; clear it in PowerShell with `Remove-Item Env:MODEL_PATH -ErrorAction SilentlyContinue` if necessary.
 
-### 4. Ensure the saved model exists
+### Create/recreate the final fitted model (train once)
 
-The API **reuses the Assignment 01 fitted artifact**:
+If `models/breast_cancer_final_pipeline.joblib` or its feature metadata is missing, prepare it **before** starting the API or building Docker:
 
-```text
-models/breast_cancer_pipeline.joblib
-```
-
-If this artifact is present after cloning, **skip training**. If it is missing (for example, in a clone that excludes generated artifacts), create it once using the original CLI:
-
-```bash
+```powershell
 uv run python run.py train
 ```
 
-Training is a **one-time artifact-preparation step**, not part of normal API startup or inference.
+Expected outputs:
 
-### 5. Start the FastAPI server
+- `models/breast_cancer_final_pipeline.joblib` (trained scaler + classifier, 25 columns).
+- `models/final_selected_features.json` (25 names in model order).
+- Console metrics evaluated on the test data.
 
-```bash
-uv run uvicorn production_app.api:app --host 127.0.0.1 --port 8000
-```
+The CLI uses `SelectKBest(f_classif)` with the final `k=25` established by the documented training-only CV experiment. **Feature count re-search is separate** (`uv run python feature_selection_cv.py`); the standard `train` command builds the final model without selecting `k` using test data.
 
-For local development with automatic code reload, you can add `--reload`:
+Use the saved final artifact to predict **without training**:
 
-```bash
-uv run uvicorn production_app.api:app --reload
-```
-
-Keep the terminal open while testing. Stop the server with **Ctrl+C**.
-
-### 6. Open the interactive documentation
-
-- Swagger UI: <http://127.0.0.1:8000/docs>
-- OpenAPI schema: <http://127.0.0.1:8000/openapi.json>
-- Health endpoint: <http://127.0.0.1:8000/health>
-
-In Swagger UI, expand an endpoint, choose **Try it out**, enter the request body where applicable, and select **Execute**.
-
----
-
-## Assignment 01: training and CLI inference
-
-Training, evaluation, and saving the fitted pipeline:
-
-```bash
-uv run python run.py train
-```
-
-CLI prediction with the saved pipeline:
-
-```bash
+```powershell
 uv run python run.py predict --sample-index 0
-uv run python run.py predict --sample-index 100
 ```
 
-The prediction command loads the artifact with `joblib.load()` and does **not** train the model again.
+For the documented final model, sample `0` returns class `0` (`malignant`). For new versions, inspect the actual output rather than assuming a class.
 
-```text
-Dataset -> train/test split -> StandardScaler + LogisticRegression
-                                       |
-                                  train and evaluate
-                                       |
-                                save fitted pipeline
-                                       |
-                               load model -> predict
+To reproduce the original-versus-selected comparison:
+
+```powershell
+uv run python feature_selection_experiment.py
+uv run python feature_selection_cv.py
 ```
 
-## Assignment 01: evaluation results
+Those scripts create separately named candidate artifacts and do not overwrite the original `models/breast_cancer_pipeline.joblib` baseline. The original baseline remains as a reference from Assignments 01 and 02.
 
-Recorded results from a successful training run, evaluated on **114 test samples**:
+## FastAPI — local run
 
-| Metric | Result |
-| --- | ---: |
-| Accuracy | **0.9825** (98.25%) |
-| Weighted precision | **0.9825** |
-| Weighted recall | **0.9825** |
-| Weighted F1-score | **0.9825** |
+Start the backend **in one terminal**:
 
-Confusion matrix (rows = actual `[malignant, benign]`; columns = predicted `[malignant, benign]`):
-
-```text
-[[41  1]
- [ 1 71]]
+```powershell
+uv run uvicorn production_app.api:app --host 127.0.0.1 --port 8005
 ```
 
-| Class | Precision | Recall | F1-score | Support |
-| --- | ---: | ---: | ---: | ---: |
-| Malignant | 0.98 | 0.98 | 0.98 | 42 |
-| Benign | 0.99 | 0.99 | 0.99 | 72 |
-
-Two of the 114 test observations were misclassified. The displayed metrics are from **one recorded run**; to reproduce them using the current configuration, run `uv run python run.py train`. The emphasis of this assignment is correct engineering, validation, and reproducibility rather than hyperparameter optimization.
-
----
-
-## Assignment 02: API design
+- Swagger UI: <http://127.0.0.1:8005/docs>
+- Health: <http://127.0.0.1:8005/health>
+- Predict: `POST http://127.0.0.1:8005/predict`
+- Stop: **Ctrl+C** in the server terminal.
 
 ### `GET /health`
 
-Checks whether the API can load its configured saved model. This is **model readiness**, not just confirmation that the web server is listening.
-
-| Case | HTTP status | Meaning |
-| --- | --- | --- |
-| Model available and compatible | `200 OK` | Service ready |
-| Model unavailable or incompatible | `503 Service Unavailable` | Service cannot serve predictions |
-
-Healthy response (`200`):
+`200 OK` when the configured saved pipeline is loadable:
 
 ```json
-{
-  "status": "healthy",
-  "model_loaded": true
-}
+{"status": "healthy", "model_loaded": true}
 ```
 
-Unhealthy response (`503`):
+`503 Service Unavailable` when the model is unavailable:
 
 ```json
-{
-  "status": "unhealthy",
-  "model_loaded": false
-}
+{"status": "unhealthy", "model_loaded": false}
 ```
 
-Check in a browser at <http://127.0.0.1:8000/health> or run:
+### `POST /predict` — complete valid **25-feature** JSON
 
-```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:8000/health" -Method Get
-```
-
-### `POST /predict`
-
-Accepts **one observation as a JSON object** with all 30 required features, validates it with Pydantic, builds a DataFrame in the saved pipeline's expected column order, and returns a class ID and readable label.
-
-Example successful response (`200 OK`):
-
-```json
-{
-  "predicted_class": 0,
-  "class_label": "malignant"
-}
-```
-
-Prediction labels follow the original scikit-learn classes: **`0 = malignant`** and **`1 = benign`**. This endpoint does not return probabilities; a prediction score is optional in Assignment 02 and is **not exposed by this implementation**.
-
-The model is loaded once per running API process on first use and then cached. Restart the server after replacing the artifact so the process can load the new file.
-
----
-
-## Required request features
-
-`PredictionRequest` in `production_app/schemas.py` defines **30 required numeric features** with the same names used by the saved pipeline. External JSON keys contain spaces; the Python schema uses aliases for those names.
-
-**Every feature is required.** Values must be JSON numbers, finite, and non-negative. Numeric strings, missing features, unknown extra keys, negative values, `NaN`, and infinity are rejected where applicable. Names and order are checked against the fitted model when it is loaded; the API reconstructs the input columns in model order.
-
-| Group | Required JSON keys (in trained order) |
-| --- | --- |
-| Mean measurements (10) | `mean radius`, `mean texture`, `mean perimeter`, `mean area`, `mean smoothness`, `mean compactness`, `mean concavity`, `mean concave points`, `mean symmetry`, `mean fractal dimension` |
-| Error measurements (10) | `radius error`, `texture error`, `perimeter error`, `area error`, `smoothness error`, `compactness error`, `concavity error`, `concave points error`, `symmetry error`, `fractal dimension error` |
-| Worst measurements (10) | `worst radius`, `worst texture`, `worst perimeter`, `worst area`, `worst smoothness`, `worst compactness`, `worst concavity`, `worst concave points`, `worst symmetry`, `worst fractal dimension` |
-
-### Full valid JSON example (all 30 features)
-
-The following example uses **observation 0** of `sklearn.datasets.load_breast_cancer`. Paste it into Swagger UI's `POST /predict` request body.
+The example uses **observation 0** from the Wisconsin dataset and can be copied into Swagger UI or saved as `examples/sample_25_features.json`:
 
 ```json
 {
@@ -359,17 +280,12 @@ The following example uses **observation 0** of `sklearn.datasets.load_breast_ca
   "mean concavity": 0.3001,
   "mean concave points": 0.1471,
   "mean symmetry": 0.2419,
-  "mean fractal dimension": 0.07871,
   "radius error": 1.095,
-  "texture error": 0.9053,
   "perimeter error": 8.589,
   "area error": 153.4,
-  "smoothness error": 0.006399,
   "compactness error": 0.04904,
   "concavity error": 0.05373,
   "concave points error": 0.01587,
-  "symmetry error": 0.03003,
-  "fractal dimension error": 0.006193,
   "worst radius": 25.38,
   "worst texture": 17.33,
   "worst perimeter": 184.6,
@@ -383,262 +299,163 @@ The following example uses **observation 0** of `sklearn.datasets.load_breast_ca
 }
 ```
 
-Expected response for this saved model (`200 OK`):
+Expected example response (`200 OK`) for the documented final model:
 
 ```json
-{
-  "predicted_class": 0,
-  "class_label": "malignant"
-}
+{"predicted_class": 0, "class_label": "malignant"}
 ```
 
-**Send a request with Swagger:** open `/docs` → `POST /predict` → **Try it out** → paste the complete JSON → **Execute**.
-
-**Send a request from a terminal:** save the JSON above in a local file named `sample_request.json` and run:
-
-```bash
-curl -X POST "http://127.0.0.1:8000/predict" -H "Content-Type: application/json" --data-binary @sample_request.json
-```
-
-In PowerShell, use `curl.exe` instead of the `curl` alias if necessary:
+PowerShell request (when the API is running on **8005**):
 
 ```powershell
-curl.exe -X POST "http://127.0.0.1:8000/predict" -H "Content-Type: application/json" --data-binary "@sample_request.json"
+Invoke-RestMethod `
+    -Uri "http://127.0.0.1:8005/predict" `
+    -Method POST `
+    -ContentType "application/json" `
+    -Body (Get-Content .\examples\sample_25_features.json -Raw)
 ```
 
-The `sample_request.json` file is only needed for this command-line example; you can paste the JSON directly into Swagger without creating a file.
+The request must contain **exactly the 25 selected fields** as finite, non-negative numeric JSON values. Pydantic forbids unknown fields, and the backend enforces exact schema/model feature-order consistency. The five removed fields are **not accepted**.
 
----
+| Scenario | HTTP code | Behavior |
+| --- | ---: | --- |
+| Valid 25-feature request | `200` | JSON predicted class + label. |
+| Missing selected field | `422` | Validation error. |
+| Extra/removed field | `422` | Validation error. |
+| Invalid type / numeric string / negative value | `422` | Validation error. |
+| Unavailable saved model | `503` | Safe error message, no internal traceback/path. |
+| Unexpected inference failure | `500` | Controlled generic error. |
 
-## Validation and error handling
-
-FastAPI applies the `PredictionRequest` schema **before** inference. These are the expected HTTP responses:
-
-| Test | Example | HTTP status |
-| --- | --- | --- |
-| Valid request | All 30 numeric features | `200` |
-| Missing feature | Omit `mean radius` | `422` |
-| Incorrect type | Set `mean radius` to `"hello"` | `422` |
-| Numeric string (strict input) | Set `mean radius` to `"17.99"` | `422` |
-| Negative measurement | Set `mean radius` to `-10` | `422` |
-| Unexpected field | Add `"random_feature": 100` | `422` |
-| Model missing or cannot load | Start API with an invalid model path | `503` |
-| Other inference failure | Internal prediction error | Controlled `500` |
-
-For validation errors, FastAPI returns a `422` JSON body describing which field failed and why. For example, a missing field can return a body with this structure (the exact details may vary with library versions):
+A model-unavailable prediction normally returns:
 
 ```json
-{
-  "detail": [
-    {
-      "type": "missing",
-      "loc": ["body", "mean radius"],
-      "msg": "Field required"
-    }
-  ]
-}
+{"detail": "Prediction service is temporarily unavailable."}
 ```
 
-Model-unavailable prediction response (`503`):
+The saved model is cached inside the running backend process. **Restart FastAPI after replacing an artifact.** There is **no fitting/training in API handlers**.
 
-```json
-{
-  "detail": "Prediction service is temporarily unavailable."
-}
+## Streamlit — editable browser UI
+
+Start FastAPI first, then **in a second terminal**:
+
+```powershell
+uv run streamlit run streamlit_app.py --server.port 8501
 ```
 
-An unexpected inference failure produces a generic error response instead of disclosing a Python stack trace, local path, or secret to the client. Details needed for debugging belong in **server-side logs**.
+Open <http://localhost:8501>. The page displays all **25 selected features** as editable non-negative numeric fields, with demonstration values from `examples/sample_25_features.json`, plus a **Predict** button.
 
-### Manually test model unavailability (no file deletion)
+- The **FastAPI Base URL** is configurable in the sidebar; default is `http://127.0.0.1:8005` (local API).
+- The same setting can be supplied as environment variable `API_BASE_URL` before starting Streamlit.
+- Clicking **Predict** sends a JSON `POST` over HTTP and displays the model's class ID and label.
+- The UI handles connection failure, request timeout, validation error (`422`), model unavailable (`503`), and other HTTP problems with user-friendly messages.
+- **Streamlit runs locally; Docker packages FastAPI only.** The UI never trains, loads, or directly runs the estimator.
 
-1. Stop any previous server on port `8001`.
-2. In a **new PowerShell terminal**, from the project root, set a temporary invalid model path and start a second server:
+Stop Streamlit with **Ctrl+C** in its terminal.
 
-   ```powershell
-   $env:MODEL_PATH = "models/nonexistent_model_for_test.joblib"
-   uv run uvicorn production_app.api:app --host 127.0.0.1 --port 8001
-   ```
+## Docker — FastAPI backend only
 
-3. Open <http://127.0.0.1:8001/docs>. `GET /health` should return **503** with `"model_loaded": false`. `POST /predict` with the **valid 30-feature JSON** should also return **503**.
-4. Stop that server with **Ctrl+C**, then clear the temporary variable in that terminal:
+**Prerequisite:** Docker Desktop/Linux containers running, with the final fitted artifact and metadata already present. The image copies those files; it does **not** train anything. Never copy `.env`, secrets, virtual environments, Git metadata, or notebooks into the runtime image.
 
-   ```powershell
-   Remove-Item Env:MODEL_PATH
-   ```
+From the repository root:
 
-The separate port/process is important because the normal API process **caches** its loaded model; changing the model path without restarting a process does not replace the cached pipeline.
+```powershell
+# Prepare the artifact if it is not present yet
+uv run python run.py train
 
-Assignment 02 requires **manual endpoint checks**. No new automated API test suite, exported Postman collection, or screenshots are necessary for submission.
+# Build the Assignment 03 API image
+docker build -t breast-cancer-api:task03 .
 
----
-
-## Docker: build and run
-
-Docker packaging is an **optional extension** to this assignment. It runs the FastAPI application and **existing fitted pipeline** in an isolated Linux container.
-
-### Prerequisites
-
-- Docker Desktop or an equivalent Docker Engine running **Linux containers**.
-- The fitted model artifact at `models/breast_cancer_pipeline.joblib`.
-
-Verify Docker:
-
-```bash
-docker --version
-docker info
-docker run --rm hello-world
+# Start container (host:8006 -> container:8000)
+docker run --rm --name breast-cancer-api-task03 -p 8006:8000 breast-cancer-api:task03
 ```
 
-### Build the image
+In **another terminal**:
 
-From the project root:
-
-```bash
-docker build -t breast-cancer-api:task02 .
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8006/health"
+Invoke-RestMethod `
+    -Uri "http://127.0.0.1:8006/predict" `
+    -Method POST `
+    -ContentType "application/json" `
+    -Body (Get-Content .\examples\sample_25_features.json -Raw)
 ```
 
-The Dockerfile uses `python:3.12-slim`, installs **uv**, synchronizes production dependencies from `uv.lock`, copies `production_app/` and the **previously trained** `breast_cancer_pipeline.joblib`, and starts Uvicorn. It **does not retrain the model** while building or running the container.
+- Dockerized Swagger: <http://127.0.0.1:8006/docs>
+- In the Streamlit sidebar change **FastAPI Base URL** to `http://127.0.0.1:8006`; submit the example input and inspect the returned prediction.
+- Stop with **Ctrl+C** in the Docker terminal, or in another terminal: `docker stop breast-cancer-api-task03`.
+- `--rm` removes the stopped **container**, not the built image.
 
-The `.dockerignore` excludes local environments, `.env` files, Git history, notebooks, caches, and other unnecessary development files. **Do not include secrets** in an image.
+Docker Compose, Kubernetes, cloud deployment, and CI/CD are outside the Assignment 03 required scope.
 
-> **Image-build note:** The uv installation in this project uses `python -m pip install --no-cache-dir uv==0.11.31` because pulling `uv` from GitHub Container Registry previously failed in this environment. Both approaches are valid; the current Dockerfile uses the `pip` approach.
+## Automated tests — pytest
 
-### Run the container
+The test suite uses **in-process FastAPI `TestClient`**, temporary files, and mocking. It does not require a running Uvicorn server, Streamlit process, or Docker container. Testing dependencies are installed via the `uv` development dependency group.
 
-```bash
-docker run --rm --name breast-cancer-api-task02 -p 8002:8000 breast-cancer-api:task02
+```powershell
+uv sync --locked
+uv run python -m pytest -v
+uv run python -m pytest -q
 ```
 
-- `8000`: Uvicorn port **inside** the container.
-- `8002`: port on the **host machine**, avoiding conflict with a local API on `8000`.
-- `--rm`: automatically removes the container when it stops.
+The intended coverage comprises:
 
-Keep the terminal open. Open:
+- Training workflow writes a model and selected-feature metadata to **temporary paths**, not production artifacts.
+- Loading the final saved model and predicting **without fitting**.
+- CLI prediction remains functional.
+- The **25 aliases and order** in Pydantic exactly match the model.
+- `GET /health` responds `200` when ready.
+- `POST /predict` responds `200` with structured class/label for valid data.
+- Missing, extra, malformed, and negative features produce `422`.
+- A simulated missing model yields controlled `503` responses, without deleting the real file.
 
-- Docker Swagger UI: <http://127.0.0.1:8002/docs>
-- Docker health check: <http://127.0.0.1:8002/health>
+Do **not** report a successful test count until the suite has passed locally. If a test fails, inspect the traceback and fix the root cause before submission.
 
-The Docker endpoints use the **same API schemas, 30-feature JSON body, and status codes** as the local API. To use the terminal example, replace port `8000` with `8002`.
+## Code quality and final verification
 
-### Verify container behavior
-
-1. `GET /health` → **200** with `"model_loaded": true`.
-2. `POST /predict` with the complete valid JSON above → **200** with class `0`, label `"malignant"`.
-3. `POST /predict` with a negative `"mean radius"` or missing feature → **422**.
-4. Confirm in server logs that the pipeline was **loaded**, not trained.
-
-Check the running container from another terminal:
-
-```bash
-docker ps
-```
-
-Stop it with **Ctrl+C** in the attached terminal or from another terminal:
-
-```bash
-docker stop breast-cancer-api-task02
-```
-
-With `--rm`, it is removed after stopping. The **Docker image** remains available for later runs.
-
-### Model and configuration inside Docker
-
-The container's configured model path resolves to `/app/models/breast_cancer_pipeline.joblib`. No local `.env` is copied into the image, and the default environment values are sufficient for the provided artifact. If you need different non-sensitive runtime settings, pass them explicitly with Docker environment variables (for example, `-e LOG_LEVEL=DEBUG`). Avoid baking credentials into images.
-
----
-
-## Code quality
-
-The project reuses Assignment 01's Ruff, Black, and pre-commit setup.
-
-Run from the **repository root**:
-
-```bash
+```powershell
 uv run ruff check .
 uv run black --check .
 uv run pre-commit run --all-files
+uv run python -m pytest -q
+uv run python run.py predict --sample-index 0
 ```
 
-All configured checks should **pass before submitting**. Ruff may fix import order with `uv run ruff check . --fix`, and Black can format Python files with `uv run black .`; rerun the checks afterward. Some Black installations skip `.ipynb` files unless the optional Jupyter support is installed; successful Python source checks are still meaningful.
+Before submission also verify the **real backend path**, the schema/model agreement, and Git hygiene:
 
-Manual API checks are sufficient for Assignment 02; no new automated test suite is required.
-
----
-
-## Reproducibility and security
-
-- `.python-version` records the intended Python version (`3.12.7` for local development).
-- `pyproject.toml` declares the dependencies and tool configuration.
-- `uv.lock` makes dependency resolution reproducible. Commit it together with `pyproject.toml`.
-- `.env.example` documents safe configuration defaults; `.env` stays local.
-- `models/breast_cancer_pipeline.joblib` is a **trusted, previously fitted artifact**. Never load an untrusted joblib/pickle file.
-- The prediction endpoint does **not** call any training function.
-- API validation happens before inference; errors returned to clients avoid internal filesystem paths, tracebacks, and secrets.
-- Do not commit `.venv/`, `.env`, credentials, caches, or unnecessary generated artifacts.
-
-### Reproduce from a fresh clone
-
-```bash
-git clone https://github.com/Ibraheim11/llmops-assignment-01-production-python.git
-cd llmops-assignment-01-production-python
-uv sync
+```powershell
+uv run python -c "from production_app.config import settings; print(settings.model_path)"
+uv run python -c "from production_app.schemas import PredictionRequest; from production_app.model_service import load_model; from production_app.config import settings; m=load_model(settings.model_path); s=[f.alias or n for n,f in PredictionRequest.model_fields.items()]; print(len(s),len(m.feature_names_in_), s==list(m.feature_names_in_)); assert s==list(m.feature_names_in_)"
+git status
 ```
 
-If the saved model is already in `models/`, start the API directly:
+Expect **`25 25 True`** for the final schema/model check. Keep `.venv`, `.env`, caches, secrets, and any test-generated temporary files out of Git. Commit `pyproject.toml`, the resolved `uv.lock`, source, the selected model or reproducible training path, metadata, README, Docker files, examples, notebook, and tests.
 
-```bash
-uv run uvicorn production_app.api:app --host 127.0.0.1 --port 8000
-```
+### Fresh-clone verification
 
-If the artifact is **missing**, create it **once** with:
-
-```bash
-uv run python run.py train
-```
-
-Then start the API and test `/health`, `/predict` and `/docs`. The Docker route is optional and follows the steps in [Docker: build and run](#docker-build-and-run).
-
----
+The reviewer should be able to: **clone → `uv sync --locked` → copy `.env.example` → train if needed → CLI predict → test → run API → run Streamlit → Docker build/run → call `/health` and `/predict`**. Execute this sequence in a separate folder before submitting on Google Classroom. If the `models/` artifact is not committed, perform `uv run python run.py train` first.
 
 ## Troubleshooting
 
-| Problem | Likely cause | Action |
-| --- | --- | --- |
-| Browser says `ERR_CONNECTION_REFUSED` at `/docs` | Server not running or wrong port | Start Uvicorn; keep terminal open; use port `8000` locally or `8002` for Docker. |
-| `ModuleNotFoundError` | Environment not synchronized or wrong working directory | Run `uv sync` in the repository root and use `uv run ...`. |
-| `/health` returns `503` | Model artifact missing, invalid, or incompatible | Check `MODEL_PATH` and artifact; prepare a trusted fitted artifact with the original training command if needed, then restart the server. |
-| `/predict` returns `422` | Missing/extra field, wrong type, or invalid numeric value | Compare the request to the 30-feature example; use numbers, not numeric strings. |
-| `/predict` returns `500` | Unexpected inference failure | Review server logs for diagnostics; do not expose traceback information to clients. |
-| API still uses an old model after replacing the file | Model cached per process | Restart Uvicorn or the Docker container. |
-| `docker: command not found` | Docker not installed or not on `PATH` | Install/start Docker Desktop and reopen the terminal. |
-| `Cannot connect to Docker daemon` | Docker Engine stopped | Start Docker Desktop and verify `docker info`. |
-| Docker build fails while pulling `ghcr.io` assets | Registry/DNS/network access problem | Use the `pip install uv==0.11.31` Dockerfile variant documented above and retry the build. |
-| `Unable to find image breast-cancer-api:task02 locally` | Build did not succeed | Complete `docker build -t breast-cancer-api:task02 .` before `docker run`. |
-| Port `8000` is already in use | Another server is listening | Stop the other server or run Docker with `-p 8002:8000`. |
-| `black --check` reports missing `SRC` | No source path provided | Run `uv run black --check .` including the trailing dot. |
+| Problem | What to check |
+| --- | --- |
+| API returns `503` | `MODEL_PATH` points to `models/breast_cancer_final_pipeline.joblib`; create artifact using CLI and restart the API. |
+| Model loads but feature schema mismatch | Compare Pydantic aliases with `model.feature_names_in_` in exact order; check for stale 30-feature artifact. |
+| API returns `422` | Supply exactly the final 25 numeric measurement keys, no unknown or removed fields. |
+| Streamlit says cannot connect | Ensure backend is running; local API URL uses **8005**, Docker API URL uses **8006**. |
+| Docker build cannot `COPY` model | Run training **before** `docker build`; do not exclude `models/` in `.dockerignore`. |
+| Docker connection refused | Start Docker Desktop, verify `docker ps`, and use `-p 8006:8000`. |
+| `uv` warns about wrong `VIRTUAL_ENV` | You may have activated a different project's environment. Clear the variable in PowerShell: `Remove-Item Env:VIRTUAL_ENV -ErrorAction SilentlyContinue`. |
+| pytest import/dependency errors | Run `uv sync --locked`; check `pytest` and `httpx` in the dev dependency group. |
+| Black shows notebook-skipping warning | This is not necessarily a failure; check exit status and, if needed, install Jupyter extras. |
 
----
+## Submission and further work
 
-## Final verification checklist
+Submit the **same** repository used for Assignments 01 and 02:
 
-Before submitting the **updated existing GitHub repository**:
+<https://github.com/Ibraheim11/llmops-assignment-01-production-python>
 
-- [ ] Assignment 01 notebook, CLI, configuration, and model logic are intact.
-- [ ] A trusted saved model is present or can be created once using the original CLI.
-- [ ] `GET /health` returns **200** with the model available and **503** when unavailable.
-- [ ] `POST /predict` returns **200** for the complete 30-feature request.
-- [ ] Pydantic rejects missing features, invalid types/values, and extra keys with **422**.
-- [ ] Inference loads the saved pipeline **without retraining**.
-- [ ] Swagger UI at `/docs` works; Docker checks work if Docker is included.
-- [ ] `uv run ruff check .` passes.
-- [ ] `uv run black --check .` passes.
-- [ ] `uv run pre-commit run --all-files` passes.
-- [ ] `.env`, `.venv/`, secrets, and other unnecessary files are not tracked by Git.
-- [ ] This entire README renders correctly on **GitHub**, including the final section and closed code fences.
-- [ ] All Assignment 02 changes are committed and pushed to the **same** repository.
+**Required for Assignment 03:** feature-selection comparison and leakage prevention, selected model with consistent API/UI inputs, functioning Streamlit → HTTP → FastAPI flow, working Dockerized backend, pytest, updated uv lockfile, and complete reproducibility instructions.
 
-**Submission:** [LLMOps Production Python Repository](https://github.com/Ibraheim11/llmops-assignment-01-production-python) — submit the updated repository link through Google Classroom.
+**After instructor acceptance (portfolio phase):** record a brief demo showing the live Streamlit UI and Dockerized API first, then a real prediction, then a short explanation of the code architecture. Optionally share the repository/demo on LinkedIn and credit instructors using their actual profiles.
 
-### Technologies
-
-Python 3.12 · scikit-learn · pandas · NumPy · joblib · python-dotenv · uv · FastAPI · Pydantic · Uvicorn · Docker · Ruff · Black · pre-commit · Git/GitHub
+> **Limitations:** This small dataset and its selected features are for educational model-serving practice; reported cross-validation/test scores are not clinical validation. The API intentionally provides class labels only, not probabilities or medical recommendations.

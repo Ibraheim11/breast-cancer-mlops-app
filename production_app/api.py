@@ -103,10 +103,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="Breast Cancer Classification API",
     description=(
-        "A validated Machine Learning prediction API "
-        "built using FastAPI, Pydantic, and scikit-learn."
+        "Assignment 03 - Production-ready machine learning API "
+        "using 25 selected features, FastAPI, Pydantic, "
+        "and a saved Logistic Regression pipeline."
     ),
-    version="2.0.0",
+    version="3.0.0",
     lifespan=lifespan,
 )
 

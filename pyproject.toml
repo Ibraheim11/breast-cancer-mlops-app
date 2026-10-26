@@ -1,7 +1,7 @@
 [project]
 name = "ml-production-project"
 version = "0.1.0"
-description = "Add your description here"
+description = "Production ML pipeline served through FastAPI with Pydantic validation and Docker"
 readme = "README.md"
 requires-python = ">=3.12.7"
 dependencies = [
@@ -11,16 +11,20 @@ dependencies = [
     "pandas>=3.0.6",
     "pydantic>=2.14.1",
     "python-dotenv>=1.2.4",
+    "requests>=2.34.2",
     "scikit-learn>=1.9.1",
+    "streamlit>=1.66.1",
     "uvicorn[standard]>=0.54.0",
 ]
 
 [dependency-groups]
 dev = [
     "black>=26.10.1",
+    "httpx>=0.28.1",
     "ipykernel>=7.4.0",
     "jupyter>=1.1.1",
     "pre-commit>=4.6.2",
+    "pytest>=9.1.1",
     "ruff>=0.17.0",
 ]
 

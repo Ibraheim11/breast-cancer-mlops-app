@@ -32,3 +32,26 @@ notebooks/
 *.log
 .DS_Store
 Thumbs.db
+
+
+# Secrets
+.env
+.env.*
+
+# Testing and tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Tests
+tests/
+
+# Local examples
+examples/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

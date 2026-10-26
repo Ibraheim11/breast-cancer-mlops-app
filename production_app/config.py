@@ -31,9 +31,8 @@ def load_settings() -> Settings:
     """
     model_path_value = os.getenv(
         "MODEL_PATH",
-        "models/breast_cancer_pipeline.joblib",
+        "models/breast_cancer_final_pipeline.joblib",
     )
-
     model_path = Path(model_path_value)
 
     if not model_path.is_absolute():
