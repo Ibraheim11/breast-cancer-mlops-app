@@ -1,11 +1,76 @@
-# Breast Cancer Classification — Production ML Application
+# 🧬 Breast Cancer MLOps App
 
-**LLMOps | Assignments 01, 02 & 03**  
-**Stack:** Python 3.12 · scikit-learn · FastAPI · Pydantic · Streamlit · Docker · pytest · uv
+**An end-to-end, reproducible machine-learning classification application** — from feature selection and model evaluation to a validated FastAPI service, Streamlit interface, Docker containerization, and automated testing.
 
-> **Educational demonstration only.** This classifier is **not clinically validated**, does not provide a diagnosis, and must not be used to make medical decisions.
+**Tech stack:** Python 3.12 · scikit-learn · Pandas · FastAPI · Pydantic · Streamlit · Docker · Pytest · uv · Ruff · Black
 
-## Overview
+> ⚠️ **Educational prototype, not a medical device.** This project uses the Wisconsin Breast Cancer dataset for software engineering practice. Its predictions are **not clinically validated** and must never be used for diagnosis, treatment, or medical decisions.
+
+## 📸 Application Preview
+
+![Streamlit application showing a prediction returned by the Dockerized FastAPI backend](docs/screenshots/streamlit_prediction.png)
+
+*Streamlit running locally on port 8501, calling a Dockerized FastAPI backend on port 8006 via HTTP. This is a local demonstration, not a publicly hosted service.*
+
+## ✨ Project Highlights
+
+- **Reproducible ML training:** train/test split, scaling, Logistic Regression and serialized inference pipeline.
+- **Leakage-aware feature selection:** `SelectKBest(f_classif)` with **5-fold stratified cross-validation on the training set** to select **25 of 30** inputs.
+- **Validated prediction API:** FastAPI + Pydantic with `/health` and `/predict`, exact feature names/order and controlled `200` / `422` / `503` responses.
+- **Interactive UI:** Streamlit presents editable measurements, sends HTTP requests to FastAPI, and handles API errors—**without loading or training the model**.
+- **Containerized serving:** Docker packages the FastAPI backend and saved model; Streamlit connects from the host.
+- **Automated verification:** 11 pytest test cases plus Ruff, Black and pre-commit checks.
+
+## 📊 Results at a Glance
+
+| Metric | Original baseline | Selected-feature model |
+| --- | ---: | ---: |
+| Input features | 30 | **25 (−16.7%)** |
+| Test accuracy | 98.25% | **97.37%** |
+| Test weighted F1 | 0.9825 | **0.9737** |
+| Training CV weighted F1 | 0.9780 | **0.9825** |
+
+**Trade-off:** The selected model needs five fewer measurements, but its held-out test accuracy is **0.88 percentage points lower** than the original baseline. CV selection and test evaluation are explained below; the results are educational and not clinical performance claims.
+
+## 🚀 Quick Start (Windows PowerShell)
+
+**Requirements:** Git, uv, Python 3.12, and Docker Desktop for the optional container demonstration.
+
+```powershell
+git clone https://github.com/Ibraheim11/breast-cancer-mlops-app.git
+cd breast-cancer-mlops-app
+uv sync --locked
+Copy-Item .env.example .env
+
+# Re-create the final model from training data if needed
+uv run python run.py train
+
+# Verify model, API behavior and CLI workflows
+uv run python -m pytest -q
+
+# Start the API in terminal 1
+uv run uvicorn production_app.api:app --host 127.0.0.1 --port 8005
+```
+
+In **terminal 2**, from the repository root:
+
+```powershell
+uv run streamlit run streamlit_app.py --server.port 8501
+```
+
+Open **http://localhost:8501** for the UI or **http://127.0.0.1:8005/docs** for Swagger. The Streamlit sidebar should point to `http://127.0.0.1:8005`. For Docker instructions, see [Docker — FastAPI backend only](#docker--fastapi-backend-only) below.
+
+## 🔗 Repository & Project Scope
+
+- **Source code:** [GitHub repository](https://github.com/Ibraheim11/breast-cancer-mlops-app)
+- **Project scope:** local, educational ML application and containerized API—not cloud deployment, CI/CD, clinical diagnosis, or a public prediction service.
+- **Development history:** built incrementally through three LLMOps assignments; all training, feature selection, and testing details remain documented below.
+
+---
+
+## 📚 Technical Documentation
+
+## Project Evolution: Assignments 01 → 03
 
 This repository evolves the **same machine-learning project** across three assignments:
 
@@ -142,7 +207,7 @@ The authoritative runtime sources are `models/final_selected_features.json` and 
 ## Project structure
 
 ```text
-ml-production-project/
+breast-cancer-mlops-app/
 ├── notebooks/01_exploration.ipynb             # Assignment 01
 ├── production_app/
 │   ├── __init__.py
@@ -187,8 +252,8 @@ Some intermediate model artifacts produced by experiments (`breast_cancer_select
 Requirements: **Git**, **uv**, compatible **Python 3.12**; **Docker Desktop** for container testing. The project uses a Python version recorded in `.python-version`.
 
 ```powershell
-git clone https://github.com/Ibraheim11/llmops-assignment-01-production-python.git
-cd llmops-assignment-01-production-python
+git clone https://github.com/Ibraheim11/breast-cancer-mlops-app.git
+cd breast-cancer-mlops-app
 uv sync --locked
 Copy-Item .env.example .env
 ```
@@ -452,7 +517,7 @@ The reviewer should be able to: **clone → `uv sync --locked` → copy `.env.ex
 
 Submit the **same** repository used for Assignments 01 and 02:
 
-<https://github.com/Ibraheim11/llmops-assignment-01-production-python>
+<https://github.com/Ibraheim11/breast-cancer-mlops-app>
 
 **Required for Assignment 03:** feature-selection comparison and leakage prevention, selected model with consistent API/UI inputs, functioning Streamlit → HTTP → FastAPI flow, working Dockerized backend, pytest, updated uv lockfile, and complete reproducibility instructions.
 
